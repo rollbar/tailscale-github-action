@@ -79,15 +79,27 @@ runs:
       - name: Set Resolved Version
         shell: bash
         run: |
+          set -euo pipefail
+
           VERSION=${{ inputs.version }}
           if [ "$VERSION" = "latest" ]; then
-            RESOLVED_VERSION=$(curl -H user-agent:tailscale-github-action -s "https://pkgs.tailscale.com/stable/?mode=json" | jq -r .Version)
+            RESOLVED_VERSION=$(curl -fsSL \
+              -H "User-Agent: tailscale-github-action" \
+              --http1.1 \
+              --retry 10 \
+              --retry-all-errors \
+              "https://pkgs.tailscale.com/stable/?mode=json" | jq -r .Version)
           elif [ "$VERSION" = "unstable" ]; then
-            RESOLVED_VERSION=$(curl -H user-agent:tailscale-github-action -s "https://pkgs.tailscale.com/unstable/?mode=json" | jq -r .Version)
+            RESOLVED_VERSION=$(curl -fsSL \
+              -H "User-Agent: tailscale-github-action" \
+              --http1.1 \
+              --retry 10 \
+              --retry-all-errors \
+              "https://pkgs.tailscale.com/unstable/?mode=json" | jq -r .Version)
           else
             RESOLVED_VERSION=$VERSION
           fi
-          echo "RESOLVED_VERSION=$RESOLVED_VERSION" >> $GITHUB_ENV
+          echo "RESOLVED_VERSION=$RESOLVED_VERSION" >> "$GITHUB_ENV"
           echo "Resolved Tailscale version: $RESOLVED_VERSION"
       - name: Set Tailscale Architecture - Linux
         if: ${{ runner.os == 'Linux' }}
@@ -121,20 +133,27 @@ runs:
         if: ${{ runner.os == 'Linux' }}
         shell: bash
         run: |
-          MINOR=$(echo "$RESOLVED_VERSION" | awk -F '.' {'print $2'})
-          if [ $((MINOR % 2)) -eq 0 ]; then
+          set -euo pipefail
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${RESOLVED_VERSION}"
+          if (( MINOR % 2 == 0 )); then
             URL="https://pkgs.tailscale.com/stable/tailscale_${RESOLVED_VERSION}_${TS_ARCH}.tgz.sha256"
           else
             URL="https://pkgs.tailscale.com/unstable/tailscale_${RESOLVED_VERSION}_${TS_ARCH}.tgz.sha256"
           fi
-          
-          if [[ "${{ inputs.sha256sum }}" ]]; then
+
+          if [[ -n "${{ inputs.sha256sum }}" ]]; then
             SHA256SUM="${{ inputs.sha256sum }}"
           else
-            SHA256SUM="$(curl -H user-agent:tailscale-github-action -L "${URL}" --fail)"
+            SHA256SUM="$(curl -fsSL \
+              -H "User-Agent: tailscale-github-action" \
+              --http1.1 \
+              --retry 10 \
+              --retry-all-errors \
+              "${URL}")"
           fi
-          echo "SHA256SUM=$SHA256SUM" >> $GITHUB_ENV
-          
+          echo "SHA256SUM=$SHA256SUM" >> "$GITHUB_ENV"
+
       - name: Restore Tailscale Binary - Linux
         if: ${{ inputs.use-cache == 'true' && runner.os == 'Linux' }}
         uses: actions/cache/restore@5a3ec84eff668545956fd18022155c47e93e2684 # v4.2.3
@@ -147,17 +166,36 @@ runs:
         if: ${{ runner.os == 'Linux' && (inputs.use-cache != 'true' || steps.restore-cache-tailscale-linux.outputs.cache-hit != 'true') }}
         shell: bash
         run: |
-          MINOR=$(echo "$RESOLVED_VERSION" | awk -F '.' {'print $2'})
-          if [ $((MINOR % 2)) -eq 0 ]; then
+          set -euo pipefail
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${RESOLVED_VERSION}"
+          if (( MINOR % 2 == 0 )); then
             URL="https://pkgs.tailscale.com/stable/tailscale_${RESOLVED_VERSION}_${TS_ARCH}.tgz"
           else
             URL="https://pkgs.tailscale.com/unstable/tailscale_${RESOLVED_VERSION}_${TS_ARCH}.tgz"
           fi
+
           echo "Downloading $URL"
-          curl -H user-agent:tailscale-github-action -L "$URL" -o tailscale.tgz --max-time 300 --retry 3 --retry-all-errors --fail
+
+          curl -fsSL \
+            -H "User-Agent: tailscale-github-action" \
+            --http1.1 \
+            -4 \
+            --retry 10 \
+            --retry-all-errors \
+            --retry-delay 2 \
+            -C - \
+            -o tailscale.tgz \
+            "$URL"
+
           echo "Expected sha256: $SHA256SUM"
-          echo "Actual sha256: $(sha256sum tailscale.tgz)"
-          echo "$SHA256SUM  tailscale.tgz" | sha256sum -c
+          echo "Actual sha256: $(sha256sum tailscale.tgz || shasum -a 256 tailscale.tgz)"
+
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "$SHA256SUM  tailscale.tgz" | sha256sum -c
+          else
+            echo "$SHA256SUM  tailscale.tgz" | shasum -a 256 -c
+          fi
 
       - name: Save Tailscale Binary - Linux
         if: ${{ inputs.use-cache == 'true' && steps.restore-cache-tailscale-linux.outputs.cache-hit != 'true' && runner.os == 'Linux' }}
@@ -180,19 +218,26 @@ runs:
         if: ${{ runner.os == 'Windows' }}
         shell: bash
         run: |
-          MINOR=$(echo "$RESOLVED_VERSION" | awk -F '.' {'print $2'})
-          if [ $((MINOR % 2)) -eq 0 ]; then
+          set -euo pipefail
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${RESOLVED_VERSION}"
+          if (( MINOR % 2 == 0 )); then
             URL="https://pkgs.tailscale.com/stable/tailscale-setup-${RESOLVED_VERSION}-${TS_ARCH}.msi.sha256"
           else
             URL="https://pkgs.tailscale.com/unstable/tailscale-setup-${RESOLVED_VERSION}-${TS_ARCH}.msi.sha256"
           fi
-          
-          if [[ "${{ inputs.sha256sum }}" ]]; then
+
+          if [[ -n "${{ inputs.sha256sum }}" ]]; then
             SHA256SUM="${{ inputs.sha256sum }}"
           else
-            SHA256SUM="$(curl -H user-agent:tailscale-github-action -L "${URL}" --fail)"
+            SHA256SUM="$(curl -fsSL \
+              -H "User-Agent: tailscale-github-action" \
+              --http1.1 \
+              --retry 10 \
+              --retry-all-errors \
+              "${URL}")"
           fi
-          echo "SHA256SUM=$SHA256SUM" >> $GITHUB_ENV
+          echo "SHA256SUM=$SHA256SUM" >> "$GITHUB_ENV"
 
       - name: Restore Tailscale Binary - Windows
         if: ${{ inputs.use-cache == 'true' && runner.os == 'Windows' }}
@@ -206,17 +251,35 @@ runs:
         if: ${{ runner.os == 'Windows' && (inputs.use-cache != 'true' || steps.restore-cache-tailscale-windows.outputs.cache-hit != 'true') }}
         shell: bash
         run: |
-          MINOR=$(echo "$RESOLVED_VERSION" | awk -F '.' {'print $2'})
-          if [ $((MINOR % 2)) -eq 0 ]; then
+          set -euo pipefail
+
+          IFS='.' read -r MAJOR MINOR PATCH <<< "${RESOLVED_VERSION}"
+          if (( MINOR % 2 == 0 )); then
             URL="https://pkgs.tailscale.com/stable/tailscale-setup-${RESOLVED_VERSION}-${TS_ARCH}.msi"
           else
             URL="https://pkgs.tailscale.com/unstable/tailscale-setup-${RESOLVED_VERSION}-${TS_ARCH}.msi"
           fi
           echo "Downloading $URL"
-          curl -H user-agent:tailscale-github-action -L "$URL" -o tailscale.msi --max-time 300 --retry 3 --retry-all-errors --fail
+
+          curl -fsSL \
+            -H "User-Agent: tailscale-github-action" \
+            --http1.1 \
+            -4 \
+            --retry 10 \
+            --retry-all-errors \
+            --retry-delay 2 \
+            -C - \
+            -o tailscale.msi \
+            "$URL"
+
           echo "Expected sha256: $SHA256SUM"
-          echo "Actual sha256: $(sha256sum tailscale.msi)"
-          echo "$SHA256SUM  tailscale.msi" | sha256sum -c
+          echo "Actual sha256: $(sha256sum tailscale.msi || shasum -a 256 tailscale.msi)"
+
+          if command -v sha256sum >/dev/null 2>&1; then
+            echo "$SHA256SUM  tailscale.msi" | sha256sum -c
+          else
+            echo "$SHA256SUM  tailscale.msi" | shasum -a 256 -c
+          fi
 
       - name: Save Tailscale Binary - Windows
         if: ${{ inputs.use-cache == 'true' && steps.restore-cache-tailscale-windows.outputs.cache-hit != 'true' && runner.os == 'Windows' }}
