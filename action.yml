@@ -129,6 +129,15 @@ runs:
           fi
           echo "TS_ARCH=$TS_ARCH" >> $GITHUB_ENV
 
+      - name: curl diagnostics (HTTP/2)
+        if: ${{ runner.os == 'Linux' || runner.os == 'Windows' }}
+        shell: bash
+        run: |
+          echo "curl --version"
+          curl --version || true
+          echo "curl --http2 -v -o /dev/null https://pkgs.tailscale.com/stable/tailscale_1.88.3_amd64.tgz"
+          curl --http2 -v -o /dev/null https://pkgs.tailscale.com/stable/tailscale_1.88.3_amd64.tgz || true
+
       - name: Set SHA256 - Linux
         if: ${{ runner.os == 'Linux' }}
         shell: bash

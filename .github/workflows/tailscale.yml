@@ -28,13 +28,6 @@ jobs:
           tags: tag:ci
           use-cache: ${{ matrix.cache }}
 
-      - name: curl diagnostics
-        shell: bash
-        run: |
-          curl --version
-          # Keep going even if the download fails so we capture the debug output
-          curl --http2 -v -o /dev/null https://pkgs.tailscale.com/stable/tailscale_1.88.3_amd64.tgz || true
-
       - name: check for tailscale connection
         shell: bash
         run:
@@ -64,12 +57,6 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
           use-cache: ${{ matrix.cache }}
-
-      - name: curl diagnostics
-        shell: bash
-        run: |
-          curl --version
-          curl --http2 -v -o /dev/null https://pkgs.tailscale.com/stable/tailscale_1.88.3_amd64.tgz || true
 
       - name: check for tailscale connection
         shell: bash
